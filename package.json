@@ -1,10 +1,11 @@
 {
   "name": "blaak",
   "private": true,
-  "version": "2.0.0",
+  "version": "3.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "screenshots": "node scripts/capture-previews.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -13,7 +14,8 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
-    "vite": "^7.0.0",
-    "@vitejs/plugin-react": "^5.0.0"
+    "@vitejs/plugin-react": "^5.0.0",
+    "playwright": "^1.55.0",
+    "vite": "^7.0.0"
   }
 }
