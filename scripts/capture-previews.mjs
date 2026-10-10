@@ -48,27 +48,23 @@ for (let page = 1; page <= 10; page++) {
 }
 
 const manifest = { generatedAt: new Date().toISOString(), owner, projects: {} };
-const eligible = repositories.filter(repo => repo.name.toLowerCase() !== `${owner}.github.io` || repo.name);
-console.log(`Found ${eligible.length} public repositories; checking GitHub Pages URLs…`);
+console.log(`Found ${repositories.length} public repositories; selecting configured GitHub Pages sites…`);
 
-await mapLimit(eligible, 5, async repo => {
-  try {
-    const pages = await getJson(`${api}/repos/${owner}/${encodeURIComponent(repo.name)}/pages`);
-    const url = pages.html_url || (repo.name.toLowerCase() === `${owner}.github.io`
+for (const repo of repositories) {
+  const hasPages = repo.has_pages === true;
+  const url = hasPages
+    ? (repo.name.toLowerCase() === `${owner}.github.io`
       ? `https://${owner}.github.io/`
-      : `https://${owner}.github.io/${repo.name}/`);
-    manifest.projects[repo.name] = { url, screenshot: null, status: 'configured' };
-  } catch (error) {
-    if (String(error.message).includes('GitHub API 404')) {
-      manifest.projects[repo.name] = { url: null, screenshot: null, status: 'not-configured' };
-    } else {
-      console.warn(`Pages lookup failed for ${repo.name}: ${error.message}`);
-      manifest.projects[repo.name] = { url: null, screenshot: null, status: 'lookup-error' };
-    }
-  }
-});
+      : `https://${owner}.github.io/${repo.name}/`)
+    : null;
+  manifest.projects[repo.name] = {
+    url,
+    screenshot: null,
+    status: hasPages ? 'configured' : 'not-configured',
+  };
+}
 
-const targets = eligible.filter(repo => manifest.projects[repo.name]?.url);
+const targets = repositories.filter(repo => manifest.projects[repo.name]?.url);
 const browser = await chromium.launch({ headless: true });
 try {
   await mapLimit(targets, 3, async repo => {
