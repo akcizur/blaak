@@ -1,10 +1,166 @@
 import { useEffect, useMemo, useState } from 'react';
-const OWNER='akcizur', API='https://api.github.com', GH='https://github.com/akcizur';
-function typeOf(r){const t=(r.name+' '+(r.description||'')+' '+(r.topics||[]).join(' ')).toLowerCase();if(/game|phaser|three|r3f|godot|unity|engine/.test(t))return'Game';if(/docs|documentation|fumadocs|mkdocs|docus/.test(t))return'Docs';if(/template|starter|boilerplate|kit/.test(t))return'Template';if(/font|css|tailwind|ui|component|design/.test(t))return'UI';return r.language||'Other'}
-function defaultPagesUrl(r){return r.name.toLowerCase()===OWNER+'.github.io'?'https://'+OWNER+'.github.io/':'https://'+OWNER+'.github.io/'+r.name+'/'}
-async function json(url){const res=await fetch(url,{headers:{Accept:'application/vnd.github+json'}});if(res.status===404)return null;if(res.status===403||res.status===429)throw Error('GitHub API limit reached');if(!res.ok)throw Error('GitHub API returned '+res.status);return res.json()}
-async function loadRepos(){const all=[];for(let p=1;p<=10;p++){const batch=await json(API+'/users/'+OWNER+'/repos?per_page=100&page='+p+'&sort=updated');if(!batch?.length)break;all.push(...batch);if(batch.length<100)break}return all.filter(r=>!r.fork&&!r.archived&&r.visibility==='public').map(r=>({...r,type:typeOf(r),pages:null,pagesChecked:false}))}
-async function detectPages(repos,setRepos,signal){const candidates=repos.filter(r=>/(html|css|javascript|typescript|react|vite|next|astro|vue|svelte|three|phaser|game|web|site|pages|frontend|ui|docs|dashboard|tool|app)/i.test(r.name+' '+(r.description||'')+' '+(r.topics||[]).join(' ')+' '+(r.language||''))||r.name.toLowerCase()===OWNER+'.github.io');let cursor=0;await Promise.all(Array.from({length:3},async()=>{while(cursor<candidates.length&&!signal.aborted){const r=candidates[cursor++];try{const data=await json(API+'/repos/'+OWNER+'/'+encodeURIComponent(r.name)+'/pages');setRepos(old=>old.map(x=>x.id===r.id?{...x,pages:data?{url:data.html_url||defaultPagesUrl(r),status:data.status||'configured'}:false,pagesChecked:true}:x))}catch(e){setRepos(old=>old.map(x=>x.id===r.id?{...x,pages:null,pagesChecked:true,pagesError:e.message}:x))}}}))}
-function Link({href,children,className=''}){return <a className={className} href={href} target="_blank" rel="noreferrer noopener">{children}</a>}
-function Card({repo:r,index}){const url=r.pages&&typeof r.pages==='object'?r.pages.url:null;return <article className="project-card" style={{'--card-index':index}}><div className="preview-frame">{url?<><iframe src={url} title={'Přímý náhled projektu '+r.name} loading="lazy" sandbox="allow-scripts allow-same-origin allow-forms allow-popups" referrerPolicy="no-referrer"/><Link className="preview-open" href={url}>Otevřít web ↗</Link></>:<div className="preview-empty"><span className="preview-mark">{r.name.slice(0,2).toUpperCase()}</span><span>{r.pagesChecked?(r.pages===false?'GitHub Pages není zapnuté':'Náhled se nepodařilo ověřit'):'Ověřuji live preview…'}</span>{r.pagesError&&<small>{r.pagesError}</small>}</div>}<span className={'live-indicator '+(url?'is-live':'')}><i/>{url?'LIVE':r.pagesChecked?'OFFLINE':'CHECKING'}</span></div><div className="project-content"><div className="project-topline"><span className="project-type">{r.type}</span><span className="stars">★ {r.stargazers_count}</span></div><h2><Link href={r.html_url}>{r.name}<span className="arrow"> ↗</span></Link></h2><p className="description">{r.description||'Bez popisu projektu.'}</p><div className="project-meta"><span>{r.language||'Mixed stack'}</span><span>Updated {new Date(r.updated_at).toLocaleDateString('cs-CZ')}</span></div><div className="project-actions"><Link className="action-primary" href={url||r.html_url}>{url?'Live preview ↗':'Repository ↗'}</Link><Link className="action-secondary" href={r.html_url}>Source code</Link></div></div></article>}
-export default function App(){const[repos,setRepos]=useState([]),[query,setQuery]=useState(''),[type,setType]=useState('All types'),[sort,setSort]=useState('updated'),[status,setStatus]=useState('loading'),[error,setError]=useState(''),[refresh,setRefresh]=useState(0);useEffect(()=>{const c=new AbortController();let active=true;setStatus('loading');setError('');loadRepos().then(async list=>{if(!active)return;setRepos(list);setStatus('checking');await detectPages(list,fn=>{if(active)setRepos(fn)},c.signal);if(active)setStatus('ready')}).catch(e=>{if(active){setError(e.message||'Unknown error');setStatus('error')}});return()=>{active=false;c.abort()}},[refresh]);const types=useMemo(()=>['All types',...new Set(repos.map(r=>r.type).sort())],[repos]);const filtered=useMemo(()=>repos.filter(r=>(r.name+' '+(r.description||'')+' '+(r.language||'')+' '+r.type).toLowerCase().includes(query.toLowerCase())&&(type==='All types'||r.type===type)).sort((a,b)=>sort==='name'?a.name.localeCompare(b.name):sort==='stars'?b.stargazers_count-a.stargazers_count:new Date(b.updated_at)-new Date(a.updated_at)),[repos,query,type,sort]);const live=repos.filter(r=>r.pages&&typeof r.pages==='object').length;return <main className="app-shell"><nav className="nav"><Link href={GH+'?tab=repositories'} className="brand"><span className="brand-symbol">A.</span><span>AKCIZUR<span className="brand-muted"> / PROJECT INDEX</span></span></Link><Link href={GH} className="nav-link">GitHub profile ↗</Link></nav><header className="hero"><div className="hero-copy"><p className="eyebrow"><span className="status-dot"/> PERSONAL REPOSITORY DIRECTORY</p><h1>Built in public.<br/><span>One place.</span></h1><p className="hero-description">A live index of projects, experiments and tools. Every preview loads directly from its GitHub Pages deployment.</p></div><div className="hero-aside"><span className="aside-label">PUBLIC PROJECTS</span><strong>{status==='loading'?'—':String(repos.length).padStart(2,'0')}</strong><span className="aside-foot">{live} live deployments detected</span></div></header><section className="control-row" aria-label="Project filters"><label className="search-box"><span>⌕</span><input type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="Search projects…" aria-label="Search projects"/></label><select value={type} onChange={e=>setType(e.target.value)} aria-label="Filter by type">{types.map(t=><option key={t}>{t}</option>)}</select><select value={sort} onChange={e=>setSort(e.target.value)} aria-label="Sort projects"><option value="updated">Recently updated</option><option value="name">Name A–Z</option><option value="stars">Most stars</option></select><button className="refresh-button" onClick={()=>setRefresh(x=>x+1)} title="Refresh repository data" aria-label="Refresh repository data">↻</button></section><div className="results-bar"><span>{filtered.length} PROJECTS</span><span>{status==='loading'?'FETCHING GITHUB DATA':status==='checking'?'CHECKING GITHUB PAGES':status==='error'?'API ERROR':'SYNCED WITH GITHUB'}</span></div>{status==='error'&&<div className="error-panel">Unable to load GitHub repositories: {error}. <button onClick={()=>setRefresh(x=>x+1)}>Try again</button></div>}{status==='loading'?<div className="loading-grid">{Array.from({length:6},(_,i)=><div className="skeleton" key={i}><div/><span/></div>)}</div>:<section className="project-grid" aria-label="GitHub repositories">{filtered.map((r,i)=><Card key={r.id} repo={r} index={i}/>)}</section>}{status!=='loading'&&filtered.length===0&&status!=='error'&&<div className="empty-state">No projects match this search.</div>}<footer className="footer"><span>AKCIZUR / OPEN SOURCE INDEX</span><span>React · Vite · GitHub API</span><Link href={GH+'?tab=repositories'}>View all repositories ↗</Link></footer></main>}
+
+const OWNER = 'akcizur';
+const API = 'https://api.github.com';
+const GH = 'https://github.com/akcizur';
+
+function typeOf(repo) {
+  const value = `${repo.name} ${repo.description || ''} ${(repo.topics || []).join(' ')}`.toLowerCase();
+  if (/game|phaser|three|r3f|godot|unity|engine/.test(value)) return 'Game';
+  if (/docs|documentation|fumadocs|mkdocs|docus/.test(value)) return 'Docs';
+  if (/template|starter|boilerplate|kit/.test(value)) return 'Template';
+  if (/font|css|tailwind|ui|component|design/.test(value)) return 'UI';
+  return repo.language || 'Other';
+}
+
+async function fetchJson(url) {
+  const response = await fetch(url, { headers: { Accept: 'application/vnd.github+json' } });
+  if (response.status === 403 || response.status === 429) throw new Error('GitHub API limit reached. Wait a moment or retry.');
+  if (!response.ok) throw new Error(`GitHub API returned ${response.status}`);
+  return response.json();
+}
+
+async function loadRepos() {
+  const all = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const batch = await fetchJson(`${API}/users/${OWNER}/repos?type=owner&per_page=100&page=${page}&sort=updated`);
+    all.push(...batch);
+    if (batch.length < 100) break;
+  }
+  return all
+    .filter(repo => !repo.fork && !repo.archived && repo.private !== true)
+    .map(repo => ({ ...repo, type: typeOf(repo), pages: null, preview: null }));
+}
+
+async function loadManifest() {
+  const response = await fetch(`${import.meta.env.BASE_URL}previews/index.json?t=${Date.now()}`, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Screenshot manifest is not available yet');
+  return response.json();
+}
+
+function Link({ href, children, className = '' }) {
+  return <a className={className} href={href} target="_blank" rel="noreferrer noopener">{children}</a>;
+}
+
+function Card({ repo, index }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const url = repo.pages?.url || null;
+  const screenshot = repo.preview?.screenshot
+    ? `${import.meta.env.BASE_URL}${repo.preview.screenshot}`
+    : null;
+  const captured = Boolean(screenshot && !imageFailed);
+
+  return (
+    <article className="project-card" style={{ '--card-index': index }}>
+      <div className="preview-frame">
+        {captured ? (
+          <Link className="screenshot-link" href={url || repo.html_url}>
+            <img src={screenshot} alt={`Automatický screenshot projektu ${repo.name}`} loading="lazy" onError={() => setImageFailed(true)} />
+            <span className="preview-open">Otevřít web ↗</span>
+          </Link>
+        ) : (
+          <div className="preview-empty">
+            <span className="preview-mark">{repo.name.slice(0, 2).toUpperCase()}</span>
+            <span>{url ? 'Screenshot čeká na další build' : 'GitHub Pages není nakonfigurované'}</span>
+          </div>
+        )}
+        <span className={'live-indicator ' + (url ? 'is-live' : '')}><i />{captured ? 'SCREENSHOT' : url ? 'LIVE URL' : 'SOURCE'}</span>
+      </div>
+      <div className="project-content">
+        <div className="project-topline"><span className="project-type">{repo.type}</span><span className="stars">★ {repo.stargazers_count}</span></div>
+        <h2><Link href={repo.html_url}>{repo.name}<span className="arrow"> ↗</span></Link></h2>
+        <p className="description">{repo.description || 'Bez popisu projektu.'}</p>
+        <div className="project-meta"><span>{repo.language || 'Mixed stack'}</span><span>Updated {new Date(repo.updated_at).toLocaleDateString('cs-CZ')}</span></div>
+        <div className="project-actions">
+          <Link className="action-primary" href={url || repo.html_url}>{url ? 'Live preview ↗' : 'Repository ↗'}</Link>
+          <Link className="action-secondary" href={repo.html_url}>Source code</Link>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+export default function App() {
+  const [repos, setRepos] = useState([]);
+  const [query, setQuery] = useState('');
+  const [type, setType] = useState('All types');
+  const [sort, setSort] = useState('updated');
+  const [status, setStatus] = useState('loading');
+  const [error, setError] = useState('');
+  const [refresh, setRefresh] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    setStatus('loading');
+    setError('');
+    Promise.all([loadRepos(), loadManifest().catch(() => ({ projects: {} }))])
+      .then(([list, manifest]) => {
+        if (!active) return;
+        const projects = manifest.projects || {};
+        const merged = list.map(repo => {
+          const preview = projects[repo.name] || null;
+          return {
+            ...repo,
+            preview,
+            pages: preview?.url ? { url: preview.url } : null,
+          };
+        });
+        setRepos(merged);
+        setStatus('ready');
+      })
+      .catch(err => {
+        if (active) {
+          setError(err.message || 'Unknown error');
+          setStatus('error');
+        }
+      });
+    return () => { active = false; };
+  }, [refresh]);
+
+  const types = useMemo(() => ['All types', ...new Set(repos.map(repo => repo.type).sort())], [repos]);
+  const filtered = useMemo(() => repos
+    .filter(repo => `${repo.name} ${repo.description || ''} ${repo.language || ''} ${repo.type}`.toLowerCase().includes(query.toLowerCase())
+      && (type === 'All types' || repo.type === type))
+    .sort((a, b) => sort === 'name'
+      ? a.name.localeCompare(b.name)
+      : sort === 'stars'
+        ? b.stargazers_count - a.stargazers_count
+        : new Date(b.updated_at) - new Date(a.updated_at)), [repos, query, type, sort]);
+
+  const live = repos.filter(repo => repo.pages).length;
+  const captured = repos.filter(repo => repo.preview?.screenshot).length;
+
+  return (
+    <main className="app-shell">
+      <nav className="nav">
+        <Link href={GH + '?tab=repositories'} className="brand"><span className="brand-symbol">A.</span><span>AKCIZUR<span className="brand-muted"> / PROJECT INDEX</span></span></Link>
+        <Link href={GH} className="nav-link">GitHub profile ↗</Link>
+      </nav>
+      <header className="hero">
+        <div className="hero-copy">
+          <p className="eyebrow"><span className="status-dot" /> AUTOMATIC PROJECT PREVIEWS</p>
+          <h1>Built in public.<br /><span>One place.</span></h1>
+          <p className="hero-description">A live index of public projects. GitHub Actions automatically visits configured Pages URLs and captures screenshots on every deployment.</p>
+        </div>
+        <div className="hero-aside">
+          <span className="aside-label">PUBLIC PROJECTS</span>
+          <strong>{status === 'loading' ? '—' : String(repos.length).padStart(2, '0')}</strong>
+          <span className="aside-foot">{captured} screenshots · {live} live URLs</span>
+        </div>
+      </header>
+      <section className="control-row" aria-label="Project filters">
+        <label className="search-box"><span>⌕</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search projects…" aria-label="Search projects" /></label>
+        <select value={type} onChange={event => setType(event.target.value)} aria-label="Filter by type">{types.map(item => <option key={item}>{item}</option>)}</select>
+        <select value={sort} onChange={event => setSort(event.target.value)} aria-label="Sort projects"><option value="updated">Recently updated</option><option value="name">Name A–Z</option><option value="stars">Most stars</option></select>
+        <button className="refresh-button" onClick={() => setRefresh(value => value + 1)} title="Refresh repository data" aria-label="Refresh repository data">↻</button>
+      </section>
+      <div className="results-bar"><span>{filtered.length} PROJECTS</span><span>{status === 'loading' ? 'FETCHING GITHUB DATA' : status === 'error' ? 'API ERROR' : 'SCREENSHOTS FROM LAST DEPLOY'}</span></div>
+      {status === 'error' && <div className="error-panel">Unable to load GitHub repositories: {error}. <button onClick={() => setRefresh(value => value + 1)}>Try again</button></div>}
+      {status === 'loading'
+        ? <div className="loading-grid">{Array.from({ length: 6 }, (_, index) => <div className="skeleton" key={index}><div /><span /></div>)}</div>
+        : <section className="project-grid" aria-label="GitHub repositories">{filtered.map((repo, index) => <Card key={repo.id} repo={repo} index={index} />)}</section>}
+      {status !== 'loading' && filtered.length === 0 && status !== 'error' && <div className="empty-state">No projects match this search.</div>}
+      <footer className="footer"><span>AKCIZUR / OPEN SOURCE INDEX</span><span>React · Vite · Playwright</span><Link href={GH + '?tab=repositories'}>View all repositories ↗</Link></footer>
+    </main>
+  );
+}
